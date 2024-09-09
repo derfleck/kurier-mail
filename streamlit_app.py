@@ -2,52 +2,77 @@ import streamlit as st
 import requests
 from datetime import datetime
 
-# Set up API credentials (replace with your actual credentials)
-API_KEY = st.secrets["API_KEY"]
-BASE_URL = "https://kurier.api-us1.com/api/3/"
+API_KEY = st.secrets["API_TOKEN"]
+BASE_URL = "https://kurier.api-us1.com/admin/api.php"
 
-def fetch_campaigns():
-    url = f"{BASE_URL}campaigns"
+def fetch_campaigns(page=1):
+    current_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    url = f"{BASE_URL}"
     params = {
-        "status": "scheduled",
-        "sort": "send_date",
-        "direction": "ASC",
-        "per_page": 50
+        "api_action": "campaign_list",
+        "api_output": "json",
+        "sort": "sdate",
+        "sort_direction": "DESC",
+        "filters[name]": "KURIER",
+        "full": "0",
+        "filters[sdate_since_datetime]": current_timestamp,
+        "page": page
     }
-    headers = {"Api-Token": API_KEY}
+    headers = {"API-TOKEN": API_KEY}
     
     response = requests.get(url, params=params, headers=headers)
     response.raise_for_status()
     return response.json()
 
+#https://www.activecampaign.com/api/example.php?call=campaign_status - Example
 def toggle_campaign(campaign_id, status):
-    url = f"{BASE_URL}campaigns/{campaign_id}/toggle"
-    headers = {"Api-Token": API_KEY}
-    data = {"status": status}
+    url = f"{BASE_URL}"
+    headers = {"API-TOKEN": API_KEY}
+    params = {
+        "api_action": "campaign_status",
+        "api_output": "json",
+        "id": campaign_id,
+        "status": status
+    }
     
-    response = requests.post(url, json=data, headers=headers)
+    response = requests.get(url, params=params, headers=headers)
     response.raise_for_status()
     return response.json()
 
-st.title("ActiveCampaign Scheduled Campaigns")
+st.title("Newsletter Tool")
 
-if 'campaigns' not in st.session_state:
-    st.session_state.campaigns = fetch_campaigns()
+st.session_state.campaigns = []
+
+page = 1
+while True:
+    campaigns = fetch_campaigns(page)
+    if not campaigns["result_code"] == 1:
+        break
+    campaigns = {k: v for k, v in campaigns.items() if k.isdigit()}
+    for k, v in campaigns.items():
+        if k.isdigit():
+            st.session_state.campaigns.append(v)
+    page += 1
 
 with st.container():
-    for campaign in st.session_state.campaigns['campaigns']:
+    for campaign in st.session_state.campaigns:
         col1, col2, col3 = st.columns([3, 1, 1])
         
         with col1:
-            st.write(f"**{campaign['name']}**")
-            st.write(f"Send Date: {datetime.fromtimestamp(campaign['senddate']).strftime('%Y-%m-%d %H:%M:%S')}")
+            st.write(campaign.get('name'))
+            #if send_date:
+            #    st.write(f"Send Date: {datetime.fromtimestamp(send_date).strftime('%Y-%m-%d %H:%M:%S')}")
+            #else:
+            #    st.write("Send Date: N/A")
+            #st.write(f"**{campaign['name']}**")
+            #st.write(f"Send Date: {datetime.fromtimestamp(campaign['senddate']).strftime('%Y-%m-%d %H:%M:%S')}")
         
         with col2:
-            if campaign['status'] == 1:
+            if campaign['status'] == "Geplant":
                 if st.button(f"Disable {campaign['id']}", key=f"disable_{campaign['id']}"):
                     try:
-                        result = toggle_campaign(campaign['id'], 0)
-                        st.success(f"Campaign {campaign['name']} disabled successfully.")
+                        result = toggle_campaign(campaign['id'], 3)
+                        st.success(f"Campaign {campaign['name']} paused successfully.")
                         st.session_state.campaigns = fetch_campaigns()  # Refresh the list
                     except Exception as e:
                         st.error(f"Error disabling campaign: {str(e)}")
@@ -61,9 +86,9 @@ with st.container():
                         st.error(f"Error enabling campaign: {str(e)}")
 
         with col3:
-            st.write(f"Status: {'Enabled' if campaign['status'] == 1 else 'Disabled'}")
+            st.write(f"Status: {campaign['status']}")
 
 if st.button("Refresh Campaign List"):
     st.session_state.campaigns = fetch_campaigns()
 
-st.write(f"Total scheduled campaigns: {len(st.session_state.campaigns['campaigns'])}")
+st.write(f"Total scheduled campaigns: {len(st.session_state.campaigns)}")
